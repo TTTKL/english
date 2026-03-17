@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LexiSprint AI 背单词</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="hero-panel">
+      <div class="brand-mark">L</div>
+      <p class="eyebrow">AI Vocabulary Coach</p>
+      <h1>背单词，不只记单词。</h1>
+      <p class="hero-copy">
+        每天记录你新学的词和已经掌握的基础词汇，自动生成贴合考试场景的长句或短文，把“会背”推进到“会用”。
+      </p>
+
+      <section class="stats-grid" id="statsGrid"></section>
+
+      <section class="config-card">
+        <div class="section-title-row">
+          <h2>生成配置</h2>
+          <span class="pill" id="modeBadge">演示模式</span>
+        </div>
+
+        <label class="field">
+          <span>目标考试</span>
+          <select id="examSelect">
+            <option value="cet4">CET-4</option>
+            <option value="cet6">CET-6</option>
+            <option value="ielts">IELTS</option>
+            <option value="toefl">TOEFL</option>
+            <option value="kaoyan">考研英语</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>生成模式</span>
+          <select id="generatorModeSelect">
+            <option value="demo">离线演示</option>
+            <option value="api">API 模式</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>API Base URL</span>
+          <input id="apiBaseInput" type="text" placeholder="https://api.openai.com/v1" />
+        </label>
+
+        <label class="field">
+          <span>API Key</span>
+          <input id="apiKeyInput" type="password" placeholder="sk-..." />
+        </label>
+
+        <label class="field">
+          <span>模型名称</span>
+          <input id="modelInput" type="text" placeholder="gpt-4o-mini" />
+        </label>
+      </section>
+    </aside>
+
+    <main class="main-panel">
+      <section class="panel word-bank-panel">
+        <div class="section-title-row">
+          <div>
+            <p class="section-kicker">Word Bank</p>
+            <h2>词库管理</h2>
+          </div>
+          <button class="ghost-btn" id="seedBtn">载入示例词库</button>
+        </div>
+
+        <form class="add-word-form" id="addWordForm">
+          <input id="wordInput" type="text" placeholder="单词，例如: sustain" required />
+          <input id="meaningInput" type="text" placeholder="中文释义，例如: 维持；支撑" required />
+          <input id="tagInput" type="text" placeholder="标签，例如: 阅读 / 写作" />
+          <button type="submit">加入词库</button>
+        </form>
+
+        <div class="word-list" id="wordList"></div>
+      </section>
+
+      <section class="panel review-panel">
+        <div class="section-title-row">
+          <div>
+            <p class="section-kicker">Daily Review</p>
+            <h2>今日背词</h2>
+          </div>
+          <button class="ghost-btn" id="resetTodayBtn">重置今日记录</button>
+        </div>
+
+        <div class="study-card" id="studyCard"></div>
+      </section>
+
+      <section class="panel ai-panel">
+        <div class="section-title-row">
+          <div>
+            <p class="section-kicker">AI Writing</p>
+            <h2>长句 / 文章生成</h2>
+          </div>
+          <div class="segmented-control">
+            <button class="segment is-active" data-output-type="sentence">长句</button>
+            <button class="segment" data-output-type="passage">文章</button>
+          </div>
+        </div>
+
+        <div class="ai-controls">
+          <label class="field">
+            <span>主题方向</span>
+            <input id="topicInput" type="text" placeholder="例如：校园生活、科技发展、环境保护" />
+          </label>
+          <button class="primary-btn" id="generateBtn">生成练习内容</button>
+        </div>
+
+        <div class="ai-output" id="aiOutput">
+          <p class="placeholder-copy">生成结果会出现在这里。系统会优先结合今日新词与已掌握基础词，尽量贴近你的考试语境。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <template id="wordItemTemplate">
+    <article class="word-item">
+      <div>
+        <div class="word-head">
+          <strong class="word-text"></strong>
+          <span class="mastery-pill"></span>
+        </div>
+        <p class="word-meaning"></p>
+        <p class="word-meta"></p>
+      </div>
+      <button class="danger-text-btn" data-action="delete">删除</button>
+    </article>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>
