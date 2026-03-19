@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "lexisprint.db"
-DEFAULT_IMPORT_PATH = Path(r"D:\qq_down\down\1521164661106_KaoYanluan_1\KaoYanluan_1.json")
+DEFAULT_IMPORT_PATH = ROOT / "KaoYanluan_1.json"
 DEFAULT_SETTINGS = {
     "exam": "cet4",
     "generatorMode": "demo",

@@ -1247,9 +1247,10 @@ async function importDataset() {
   els.importDatasetBtn.disabled = true;
   els.importDatasetBtn.textContent = "导入中...";
   try {
+    const importFilePath = "E:\\ai_app\\english\\KaoYanluan_1.json";
     const result = await api("/api/import-dataset", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ filePath: importFilePath }),
     });
     await refreshState();
     window.alert(`导入完成：新增 ${result.inserted} 个，跳过 ${result.skipped} 个。当前词库共 ${result.totalWords} 个，并已绑定到考研英语。`);
