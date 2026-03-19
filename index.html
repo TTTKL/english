@@ -47,21 +47,45 @@
         <button class="main-action-btn tertiary-action" id="writeBtn">生成文章 / 句子</button>
       </div>
     </section>
+  </div>
+
+  <div class="page-shell" id="studyShell" hidden>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Study Session</p>
+        <h2 id="studyPageTitle">三阶段背诵</h2>
+        <p class="header-copy" id="studyPageCaption"></p>
+      </div>
+      <button class="ghost-btn" id="studyBackBtn" type="button">返回首页</button>
+    </header>
 
     <main class="main-panel">
       <section class="panel review-panel" id="studyPanel">
         <div class="section-title-row">
           <div>
             <p class="section-kicker">Study Flow</p>
-            <h3 id="studyTitle">三阶段背词</h3>
+            <h3 id="studyTitle">三阶段背诵</h3>
           </div>
           <button class="ghost-btn" id="resetTodayBtn">重置今日记录</button>
         </div>
 
         <div class="study-card" id="studyCard"></div>
       </section>
+    </main>
+  </div>
 
-      <section class="panel ai-panel" id="aiPanel" hidden>
+  <div class="page-shell" id="aiShell" hidden>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">AI Writing</p>
+        <h2>生成文章 / 句子</h2>
+        <p class="header-copy">基于今天真正通过三阶段的词汇，生成练习用长句或短文。</p>
+      </div>
+      <button class="ghost-btn" id="aiBackBtn" type="button">返回首页</button>
+    </header>
+
+    <main class="main-panel">
+      <section class="panel ai-panel" id="aiPanel">
         <div class="section-title-row">
           <div>
             <p class="section-kicker">AI Writing</p>
@@ -108,7 +132,7 @@
 
       <section class="modal-section admin-login-box">
         <div>
-          <h3>后台管理者设置</h3>
+          <h3>后台管理员设置</h3>
           <p class="study-subcopy">输入管理员密码后，打开独立后台管理窗口。</p>
         </div>
         <div class="admin-login-row">
@@ -139,9 +163,9 @@
         </div>
 
         <form class="add-word-form" id="addWordForm">
-          <input id="wordInput" type="text" placeholder="单词，例如: sustain" required />
-          <input id="meaningInput" type="text" placeholder="中文释义，例如: 维持；支撑" required />
-          <input id="tagInput" type="text" placeholder="标签，例如: 阅读 / 写作" />
+          <input id="wordInput" type="text" placeholder="单词，例如 sustain" required />
+          <input id="meaningInput" type="text" placeholder="中文释义，例如 维持；支撑" required />
+          <input id="tagInput" type="text" placeholder="标签，例如 阅读 / 写作" />
           <button type="submit">加入词库</button>
         </form>
 

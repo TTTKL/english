@@ -90,10 +90,26 @@ def init_db() -> None:
 
 def row_to_word(row: sqlite3.Row) -> dict:
     synonyms = []
+    translations = []
     raw_json = row["raw_json"] or ""
     if raw_json:
         try:
             entry = json.loads(raw_json)
+            trans = (
+                entry.get("content", {})
+                .get("word", {})
+                .get("content", {})
+                .get("trans", [])
+            )
+            for item in trans:
+                meaning = str(item.get("tranCn", "")).strip()
+                pos = str(item.get("pos", "")).strip()
+                if meaning:
+                    translations.append({
+                        "pos": pos,
+                        "meaning": meaning,
+                    })
+
             synos = (
                 entry.get("content", {})
                 .get("word", {})
@@ -123,6 +139,7 @@ def row_to_word(row: sqlite3.Row) -> dict:
         "rank": row["rank_num"],
         "exampleSentence": row["example_sentence"],
         "exampleCn": row["example_cn"],
+        "translations": translations,
         "synonyms": synonyms,
         "familiarity": row["familiarity"],
         "reviewCount": row["review_count"],

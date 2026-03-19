@@ -27,6 +27,8 @@ const DEMO_LIBRARY = [
   { word: "essential", meaning: "必要的；本质的", tag: "写作" },
 ];
 
+const ACTIVE_ROUND_STORAGE_KEY = "lexisprint-active-round-v1";
+
 const DEFAULT_STATE = {
   words: [],
   todayLog: [],
@@ -50,6 +52,8 @@ const els = {
   entryScreen: document.querySelector("#entryScreen"),
   enterAppBtn: document.querySelector("#enterAppBtn"),
   homeShell: document.querySelector("#homeShell"),
+  studyShell: document.querySelector("#studyShell"),
+  aiShell: document.querySelector("#aiShell"),
   openSettingsBtn: document.querySelector("#openSettingsBtn"),
   closeSettingsBtn: document.querySelector("#closeSettingsBtn"),
   closeAdminBtn: document.querySelector("#closeAdminBtn"),
@@ -63,7 +67,11 @@ const els = {
   actionCaption: document.querySelector("#actionCaption"),
   studyPanel: document.querySelector("#studyPanel"),
   aiPanel: document.querySelector("#aiPanel"),
+  studyPageTitle: document.querySelector("#studyPageTitle"),
+  studyPageCaption: document.querySelector("#studyPageCaption"),
   studyTitle: document.querySelector("#studyTitle"),
+  studyBackBtn: document.querySelector("#studyBackBtn"),
+  aiBackBtn: document.querySelector("#aiBackBtn"),
   studyCard: document.querySelector("#studyCard"),
   resetTodayBtn: document.querySelector("#resetTodayBtn"),
   generateBtn: document.querySelector("#generateBtn"),
@@ -92,7 +100,7 @@ const els = {
 let state = structuredClone(DEFAULT_STATE);
 let uiState = {
   appEntered: false,
-  currentView: "study",
+  currentView: "home",
   studyMode: "memorize",
   settingsOpen: false,
   adminOpen: false,
@@ -107,6 +115,108 @@ function createEmptyRound() {
     activeId: null,
     mode: "memorize",
   };
+}
+
+function createRoundQueueEntry(item) {
+  return {
+    id: item.id,
+    stage: 1,
+    attempts: 0,
+    stageOneOptions: [],
+    stage1SelectedIndex: null,
+    stage2Choice: null,
+    stage2Judge: null,
+    stage3Choice: null,
+  };
+}
+
+function isRoundInProgress(round) {
+  return Boolean(round && round.size > 0 && round.queue.length > 0);
+}
+
+function normalizeRound(round) {
+  if (!round || typeof round !== "object") {
+    return null;
+  }
+
+  const validIds = new Set(state.words.map((item) => item.id));
+  const queue = Array.isArray(round.queue)
+    ? round.queue
+      .filter((entry) => entry && validIds.has(entry.id))
+      .map((entry) => ({
+        id: entry.id,
+        stage: Math.max(1, Math.min(3, Number.parseInt(entry.stage, 10) || 1)),
+        attempts: Math.max(0, Number.parseInt(entry.attempts, 10) || 0),
+        stageOneOptions: Array.isArray(entry.stageOneOptions)
+          ? entry.stageOneOptions
+            .filter((option) => option && typeof option.text === "string")
+            .map((option) => ({
+              text: option.text,
+              english: typeof option.english === "string" ? option.english : "",
+              correct: option.correct === true,
+            }))
+          : [],
+        stage1SelectedIndex: Number.isInteger(entry.stage1SelectedIndex) ? entry.stage1SelectedIndex : null,
+        stage2Choice: ["know", "fuzzy", "dontKnow"].includes(entry.stage2Choice) ? entry.stage2Choice : null,
+        stage2Judge: ["correct", "wrong"].includes(entry.stage2Judge) ? entry.stage2Judge : null,
+        stage3Choice: ["know", "dontKnow"].includes(entry.stage3Choice) ? entry.stage3Choice : null,
+      }))
+    : [];
+
+  const queuedIds = new Set(queue.map((entry) => entry.id));
+  const completed = Array.isArray(round.completed)
+    ? round.completed
+      .filter((entry) => entry && validIds.has(entry.id) && !queuedIds.has(entry.id))
+      .map((entry) => ({
+        id: entry.id,
+        completedAt: Number.parseInt(entry.completedAt, 10) || Date.now(),
+      }))
+    : [];
+
+  const size = Math.max(queue.length + completed.length, Number.parseInt(round.size, 10) || 0);
+  if (size === 0) {
+    return null;
+  }
+
+  return {
+    size,
+    mode: round.mode === "review" ? "review" : "memorize",
+    queue,
+    completed,
+    activeId: queue.some((entry) => entry.id === round.activeId) ? round.activeId : (queue[0]?.id || null),
+  };
+}
+
+function loadPersistedRound() {
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_ROUND_STORAGE_KEY);
+    return raw ? normalizeRound(JSON.parse(raw)) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function persistRound() {
+  try {
+    if (isRoundInProgress(uiState.round)) {
+      window.localStorage.setItem(ACTIVE_ROUND_STORAGE_KEY, JSON.stringify(uiState.round));
+    } else {
+      window.localStorage.removeItem(ACTIVE_ROUND_STORAGE_KEY);
+    }
+  } catch (_error) {
+    // Ignore persistence failures and keep the current session usable.
+  }
+}
+
+function hydrateRoundFromStorage() {
+  const restoredRound = loadPersistedRound();
+  if (restoredRound && !isRoundInProgress(uiState.round)) {
+    uiState.round = restoredRound;
+    uiState.studyMode = restoredRound.mode;
+  } else if (uiState.round) {
+    uiState.round = normalizeRound(uiState.round);
+  }
+  persistRound();
 }
 
 async function api(path, options = {}) {
@@ -145,6 +255,7 @@ async function refreshState() {
       ...(data.settings || {}),
     },
   };
+  hydrateRoundFromStorage();
   render();
 }
 
@@ -162,12 +273,15 @@ function normalizeWord(input) {
 }
 
 function getMasteredWords() {
-  return state.words.filter((item) => item.familiarity >= 6);
+  return state.words.filter((item) => item.reviewCount > 0);
 }
 
 function getTodayStudiedWords() {
   const seen = new Set();
   return state.todayLog.filter((entry) => {
+    if (entry.rating !== "know") {
+      return false;
+    }
     if (seen.has(entry.wordId)) {
       return false;
     }
@@ -177,6 +291,18 @@ function getTodayStudiedWords() {
 }
 
 function getStats() {
+  {
+    const round = uiState.round || createEmptyRound();
+    return [
+      { label: "词库总量", value: state.words.length },
+      { label: "今日过关", value: getTodayStudiedWords().length },
+      { label: "已掌握", value: getMasteredWords().length },
+      { label: "未背新词", value: state.words.filter((item) => item.reviewCount === 0).length },
+      { label: "本轮完成", value: round.completed.length },
+      { label: "目标考试", value: EXAM_LABELS[state.settings.exam] },
+    ];
+  }
+
   const round = uiState.round || createEmptyRound();
   return [
     { label: "词库总量", value: state.words.length },
@@ -216,15 +342,27 @@ function renderModeBadge() {
 }
 
 function renderShellVisibility() {
-  els.entryScreen.hidden = uiState.appEntered;
-  els.homeShell.hidden = !uiState.appEntered;
-  els.openSettingsBtn.hidden = !uiState.appEntered;
+  const appVisible = uiState.appEntered;
+  els.entryScreen.hidden = appVisible;
+  els.homeShell.hidden = !appVisible || uiState.currentView !== "home";
+  els.studyShell.hidden = !appVisible || uiState.currentView !== "study";
+  els.aiShell.hidden = !appVisible || uiState.currentView !== "ai";
+  els.openSettingsBtn.hidden = !appVisible;
 }
 
 function renderMainView() {
-  const isAi = uiState.currentView === "ai";
-  els.studyPanel.hidden = isAi;
-  els.aiPanel.hidden = !isAi;
+  {
+    const captionMap = {
+      memorize: `背诵单词会从主词库中随机抽取本轮 ${state.settings.roundSize} 个“还没背诵过”的单词进入三阶段流程。`,
+      review: `复习单词会从已完成背诵的单词里抽取本轮 ${state.settings.roundSize} 个进入三阶段复习。`,
+      ai: "生成文章 / 句子会优先调用今天真正通过三阶段的词汇，再结合已掌握基础词生成内容。",
+    };
+
+    els.actionCaption.textContent = captionMap.memorize;
+    els.studyPageTitle.textContent = uiState.studyMode === "review" ? "三阶段复习" : "三阶段背诵";
+    els.studyPageCaption.textContent = captionMap[uiState.studyMode];
+    return;
+  }
 
   const captionMap = {
     memorize: `背诵单词会从主词库中随机抽取本轮 ${state.settings.roundSize} 个“还没背诵过”的单词进入三阶段流程。`,
@@ -232,7 +370,9 @@ function renderMainView() {
     ai: "生成文章 / 句子会优先调用今天真正通过三阶段的词汇，再结合已掌握基础词生成内容。",
   };
 
-  els.actionCaption.textContent = captionMap[isAi ? "ai" : uiState.studyMode];
+  els.actionCaption.textContent = captionMap.memorize;
+  els.studyPageTitle.textContent = uiState.studyMode === "review" ? "涓夐樁娈靛涔?" : "涓夐樁娈佃儗璇?";
+  els.studyPageCaption.textContent = captionMap[uiState.studyMode];
 }
 
 function renderSettingsModal() {
@@ -283,6 +423,7 @@ function renderWordList() {
           uiState.round.queue = uiState.round.queue.filter((entry) => entry.id !== item.id);
           uiState.round.completed = uiState.round.completed.filter((entry) => entry.id !== item.id);
           uiState.round.activeId = uiState.round.queue[0]?.id || null;
+          persistRound();
         }
         await refreshState();
       } catch (error) {
@@ -314,6 +455,13 @@ function buildMemorizePool() {
 }
 
 function buildReviewPool() {
+  {
+    const reviewed = getMasteredWords();
+    const due = reviewed.filter((item) => item.nextDueAt <= Date.now());
+    const backup = reviewed.filter((item) => item.nextDueAt > Date.now());
+    return [...shuffle(due), ...shuffle(backup)];
+  }
+
   const reviewed = state.words.filter((item) => item.reviewCount > 0);
   const due = reviewed.filter((item) => item.nextDueAt <= Date.now());
   const backup = reviewed.filter((item) => item.nextDueAt > Date.now());
@@ -321,6 +469,23 @@ function buildReviewPool() {
 }
 
 function createRoundFromPool(mode) {
+  {
+    const requestedSize = Math.max(1, Math.min(50, Number.parseInt(state.settings.roundSize, 10) || 8));
+    const pool = mode === "memorize" ? buildMemorizePool() : buildReviewPool();
+    const limit = mode === "memorize"
+      ? Math.min(requestedSize, pool.length)
+      : Math.min(requestedSize, getMasteredWords().length, pool.length);
+    const selected = pool.slice(0, limit);
+
+    return {
+      size: selected.length,
+      mode,
+      queue: selected.map((item) => createRoundQueueEntry(item)),
+      completed: [],
+      activeId: selected[0]?.id || null,
+    };
+  }
+
   const size = Math.max(1, Math.min(50, Number.parseInt(state.settings.roundSize, 10) || 8));
   const pool = mode === "memorize" ? buildMemorizePool() : buildReviewPool();
   const selected = shuffle(pool).slice(0, Math.min(size, pool.length));
@@ -328,17 +493,98 @@ function createRoundFromPool(mode) {
   return {
     size: selected.length,
     mode,
-    queue: selected.map((item) => ({
-      id: item.id,
-      stage: 1,
-      attempts: 0,
-    })),
+    queue: selected.map((item) => createRoundQueueEntry(item)),
     completed: [],
     activeId: selected[0]?.id || null,
   };
 }
 
+function reconcileActiveRoundSize(previousSize, nextSize) {
+  if (!uiState.round || !isRoundInProgress(uiState.round)) {
+    return;
+  }
+
+  const currentSize = Math.max(
+    uiState.round.queue.length + uiState.round.completed.length,
+    Number.parseInt(uiState.round.size, 10) || 0,
+  );
+  const targetSize = Math.max(1, Number.parseInt(nextSize, 10) || currentSize || 1);
+  if (targetSize === currentSize) {
+    return;
+  }
+
+  if (targetSize > currentSize) {
+    const addCount = targetSize - currentSize;
+    const existingIds = new Set([
+      ...uiState.round.queue.map((entry) => entry.id),
+      ...uiState.round.completed.map((entry) => entry.id),
+    ]);
+    const pool = uiState.round.mode === "memorize" ? buildMemorizePool() : buildReviewPool();
+    const additions = pool
+      .filter((item) => !existingIds.has(item.id))
+      .slice(0, addCount)
+      .map((item) => createRoundQueueEntry(item));
+
+    if (additions.length > 0) {
+      uiState.round.queue.push(...additions);
+      uiState.round.size = currentSize + additions.length;
+      if (!uiState.round.activeId) {
+        uiState.round.activeId = uiState.round.queue[0]?.id || null;
+      }
+      persistRound();
+    }
+    return;
+  }
+
+  const stageOneCandidates = uiState.round.queue.filter((entry) => entry.stage === 1);
+  const removeCount = Math.min(stageOneCandidates.length, currentSize - targetSize);
+  if (removeCount <= 0) {
+    return;
+  }
+
+  const removableIds = [];
+  const queueTail = [...uiState.round.queue].reverse();
+  for (const entry of queueTail) {
+    if (entry.stage !== 1 || entry.id === uiState.round.activeId) {
+      continue;
+    }
+    removableIds.push(entry.id);
+    if (removableIds.length === removeCount) {
+      break;
+    }
+  }
+
+  if (removableIds.length < removeCount) {
+    const activeEntry = currentRoundEntry();
+    if (activeEntry && activeEntry.stage === 1) {
+      removableIds.push(activeEntry.id);
+    }
+  }
+
+  const removalSet = new Set(removableIds.slice(0, removeCount));
+  if (removalSet.size === 0) {
+    return;
+  }
+
+  uiState.round.queue = uiState.round.queue.filter((entry) => !removalSet.has(entry.id));
+  uiState.round.size = Math.max(0, currentSize - removalSet.size);
+  if (!uiState.round.queue.some((entry) => entry.id === uiState.round.activeId)) {
+    uiState.round.activeId = uiState.round.queue[0]?.id || null;
+  }
+  persistRound();
+}
+
 async function startRound(mode) {
+  const resumedRound = normalizeRound(uiState.round) || loadPersistedRound();
+  if (isRoundInProgress(resumedRound)) {
+    uiState.studyMode = resumedRound.mode;
+    uiState.currentView = "study";
+    uiState.round = resumedRound;
+    persistRound();
+    render();
+    return;
+  }
+
   const round = createRoundFromPool(mode);
   if (round.size === 0) {
     window.alert(mode === "memorize" ? "主词库里暂时没有还没背诵过的新词了。" : "当前还没有可复习的已背单词。");
@@ -348,26 +594,270 @@ async function startRound(mode) {
   uiState.studyMode = mode;
   uiState.currentView = "study";
   uiState.round = round;
+  persistRound();
   render();
 }
 
+function formatTranslationOption(item) {
+  if (!item) {
+    return "";
+  }
+
+  if (typeof item === "string") {
+    return item.trim();
+  }
+
+  const meaning = item.meaning?.trim() || "";
+  const pos = item.pos?.trim() || "";
+  return pos && meaning ? `${pos}. ${meaning}` : meaning;
+}
+
+function primaryOptionText(word) {
+  return formatTranslationOption(word.translations?.[0]) || word.meaning;
+}
+
+function countSharedBigrams(left, right) {
+  const bigrams = new Set();
+  for (let index = 0; index < left.length - 1; index += 1) {
+    bigrams.add(left.slice(index, index + 2));
+  }
+
+  let matches = 0;
+  for (let index = 0; index < right.length - 1; index += 1) {
+    if (bigrams.has(right.slice(index, index + 2))) {
+      matches += 1;
+    }
+  }
+  return matches;
+}
+
+function wordShapeSimilarity(source, candidate) {
+  const left = source.toLowerCase();
+  const right = candidate.toLowerCase();
+  if (!left || !right || left === right) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  let prefix = 0;
+  while (prefix < left.length && prefix < right.length && left[prefix] === right[prefix]) {
+    prefix += 1;
+  }
+
+  let suffix = 0;
+  while (
+    suffix < left.length
+    && suffix < right.length
+    && left[left.length - 1 - suffix] === right[right.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+
+  return (prefix * 4) + (suffix * 2) + (countSharedBigrams(left, right) * 3) - Math.abs(left.length - right.length);
+}
+
 function buildStageOneOptions(word) {
-  const bestOption = word.synonyms?.[0] || word.meaning;
-  const distractors = shuffle(
-    state.words
-      .filter((item) => item.id !== word.id)
-      .map((item) => item.synonyms?.[0] || item.meaning)
-      .filter((item) => item && item !== bestOption),
-  ).slice(0, 3);
+  const bestOption = primaryOptionText(word);
+  const distractors = [];
+  const usedTexts = new Set([bestOption]);
+  const similarWords = state.words
+    .filter((item) => item.id !== word.id)
+    .map((item) => ({ item, score: wordShapeSimilarity(word.word, item.word) }))
+    .sort((left, right) => right.score - left.score);
+
+  for (const entry of similarWords) {
+    const optionText = primaryOptionText(entry.item);
+    if (!optionText || usedTexts.has(optionText)) {
+      continue;
+    }
+    distractors.push({
+      text: optionText,
+      english: entry.item.word,
+    });
+    usedTexts.add(optionText);
+    if (distractors.length === 3) {
+      break;
+    }
+  }
+
+  if (distractors.length < 3) {
+    for (const item of shuffle(state.words.filter((entry) => entry.id !== word.id))) {
+      const optionText = primaryOptionText(item);
+      if (!optionText || usedTexts.has(optionText)) {
+        continue;
+      }
+      distractors.push({
+        text: optionText,
+        english: item.word,
+      });
+      usedTexts.add(optionText);
+      if (distractors.length === 3) {
+        break;
+      }
+    }
+  }
 
   while (distractors.length < 3) {
     distractors.push(`干扰项 ${distractors.length + 1}`);
   }
 
   return shuffle([
-    { text: bestOption, correct: true },
-    ...distractors.map((item) => ({ text: item, correct: false })),
+    { text: bestOption, english: word.word, correct: true },
+    ...distractors.map((item) => ({
+      text: typeof item === "string" ? item : item.text,
+      english: typeof item === "string" ? "" : item.english,
+      correct: false,
+    })),
   ]);
+}
+
+function resetEntryCardState(entry) {
+  entry.stageOneOptions = [];
+  entry.stage1SelectedIndex = null;
+  entry.stage2Choice = null;
+  entry.stage2Judge = null;
+  entry.stage3Choice = null;
+}
+
+function ensureStageOneOptions(entry, word) {
+  if (!Array.isArray(entry.stageOneOptions) || entry.stageOneOptions.length !== 4) {
+    entry.stageOneOptions = buildStageOneOptions(word);
+  }
+  return entry.stageOneOptions;
+}
+
+function sentenceTranslation(word) {
+  return word.exampleCn || `暂未提供整句中文释义，可先结合该词释义“${word.meaning}”自行判断。`;
+}
+
+function stageChoiceLabel(choice) {
+  if (choice === "know") {
+    return "会";
+  }
+  if (choice === "fuzzy") {
+    return "模糊";
+  }
+  if (choice === "dontKnow") {
+    return "不会";
+  }
+  return "";
+}
+
+function moveEntryToQueueEnd(entry, nextStage, options = {}) {
+  if (!uiState.round) {
+    return;
+  }
+
+  entry.stage = nextStage;
+  if (options.incrementAttempts) {
+    entry.attempts += 1;
+  }
+  resetEntryCardState(entry);
+  uiState.round.queue = uiState.round.queue.filter((item) => item.id !== entry.id);
+  uiState.round.queue.push(entry);
+  markQueueNextActive();
+  persistRound();
+  render();
+}
+
+function handleStageOneChoice(choiceIndex) {
+  const entry = currentRoundEntry();
+  const word = currentRoundWord();
+  if (!entry || !word || entry.stage1SelectedIndex !== null) {
+    return;
+  }
+
+  const options = ensureStageOneOptions(entry, word);
+  if (!options[choiceIndex]) {
+    return;
+  }
+
+  entry.stage1SelectedIndex = choiceIndex;
+  persistRound();
+  render();
+}
+
+function advanceStageOne() {
+  const entry = currentRoundEntry();
+  if (!entry) {
+    return;
+  }
+
+  const selected = entry.stageOneOptions?.[entry.stage1SelectedIndex];
+  if (!selected) {
+    return;
+  }
+
+  if (selected.correct) {
+    moveEntryToQueueEnd(entry, 2);
+    return;
+  }
+
+  moveEntryToQueueEnd(entry, 1, { incrementAttempts: true });
+}
+
+function handleStageTwoChoice(choice) {
+  const entry = currentRoundEntry();
+  if (!entry || entry.stage2Choice) {
+    return;
+  }
+
+  entry.stage2Choice = choice;
+  persistRound();
+  render();
+}
+
+function getStageTwoTarget(choice, result) {
+  if (choice === "know" && result === "correct") {
+    return { nextStage: 3, incrementAttempts: false };
+  }
+
+  if (choice === "dontKnow") {
+    return { nextStage: 1, incrementAttempts: true };
+  }
+
+  if (choice === "fuzzy" && result === "wrong") {
+    return { nextStage: 1, incrementAttempts: true };
+  }
+
+  return { nextStage: 2, incrementAttempts: false };
+}
+
+function handleStageTwoJudge(result) {
+  const entry = currentRoundEntry();
+  if (!entry || !entry.stage2Choice) {
+    return;
+  }
+
+  entry.stage2Judge = result;
+  const target = getStageTwoTarget(entry.stage2Choice, result);
+  moveEntryToQueueEnd(entry, target.nextStage, { incrementAttempts: target.incrementAttempts });
+}
+
+function handleStageThreeChoice(choice) {
+  const entry = currentRoundEntry();
+  if (!entry || entry.stage3Choice) {
+    return;
+  }
+
+  entry.stage3Choice = choice;
+  persistRound();
+  render();
+}
+
+async function advanceStageThree() {
+  const entry = currentRoundEntry();
+  if (!entry || !entry.stage3Choice) {
+    return;
+  }
+
+  if (entry.stage3Choice === "know") {
+    resetEntryCardState(entry);
+    await completeWord(entry);
+    render();
+    return;
+  }
+
+  moveEntryToQueueEnd(entry, 1, { incrementAttempts: true });
 }
 
 function fallbackSentence(word) {
@@ -404,7 +894,7 @@ function renderRoundComplete() {
 }
 
 function renderStudyCard() {
-  els.studyTitle.textContent = uiState.studyMode === "review" ? "三阶段复习" : "三阶段背词";
+  els.studyTitle.textContent = uiState.studyMode === "review" ? "三阶段复习" : "三阶段背诵";
 
   if (!uiState.round || uiState.round.size === 0) {
     els.studyCard.innerHTML = renderRoundSummary();
@@ -420,56 +910,90 @@ function renderStudyCard() {
   const word = currentRoundWord();
   if (!entry || !word) {
     uiState.round.activeId = uiState.round.queue[0]?.id || null;
+    persistRound();
     els.studyCard.innerHTML = renderRoundSummary();
     return;
   }
 
   const stageMap = {
-    1: "阶段 1 · 看单词选正确近义项 / 释义",
-    2: "阶段 2 · 看例句判断你是否真的理解",
-    3: "阶段 3 · 只看意思回想单词",
+    1: "阶段 1 · 看单词选出正确翻译和词性",
+    2: "阶段 2 · 先判断自己懂不懂，再核对整句中文",
+    3: "阶段 3 · 只看中文意思，回想对应英文",
   };
 
-  let content = `${renderRoundSummary()}<p class="study-subcopy">${stageMap[entry.stage]} · 当前单词失败后会回到待背队列末尾。</p>`;
+  let content = `${renderRoundSummary()}<p class="study-subcopy">${stageMap[entry.stage]} · 当前阶段处理完后会切到下一词，当前词按结果回到队列中继续流转。</p>`;
 
   if (entry.stage === 1) {
-    const options = buildStageOneOptions(word);
+    const options = ensureStageOneOptions(entry, word);
+    const answered = entry.stage1SelectedIndex !== null;
     content += `
-      <h3 class="study-word">${word.word}</h3>
-      <p class="study-meaning">请选择最贴近它的近义项或释义。</p>
+      <h3 class="study-word">${escapeHtml(word.word)}</h3>
+      <p class="study-meaning">请选择唯一正确的“词性 + 中文释义”。</p>
       <div class="option-grid">
         ${options.map((option, index) => `
-          <button class="option-btn" data-choice-index="${index}" data-correct="${option.correct}">
-            ${option.text}
+          <button
+            class="option-btn${answered && option.correct ? " is-correct" : ""}${answered && index === entry.stage1SelectedIndex && !option.correct ? " is-wrong" : ""}"
+            data-choice-index="${index}"
+            type="button"
+            ${answered ? "disabled" : ""}
+          >
+            <span class="option-cn">${escapeHtml(option.text)}</span>
+            ${answered ? `<span class="option-en">${escapeHtml(option.english || "")}</span>` : ""}
           </button>
         `).join("")}
       </div>
-      <div class="study-actions">
-        <button class="btn-forget" id="stageFailBtn" type="button">不会，回到待背队列</button>
-      </div>
+      ${answered ? `
+        <div class="study-actions">
+          <button class="primary-btn" id="stageOneNextBtn" type="button">下一词</button>
+        </div>
+      ` : ""}
     `;
   }
 
   if (entry.stage === 2) {
+    const translationVisible = Boolean(entry.stage2Choice);
     content += `
-      <h3 class="study-word">${word.word}</h3>
-      <p class="study-meaning">${word.exampleSentence || fallbackSentence(word)}</p>
-      <p class="study-subcopy">先自己判断有没有真正理解这句话里的用法。</p>
-      <div class="study-actions">
-        <button class="btn-know" id="stagePassBtn" type="button">会，进入阶段 3</button>
-        <button class="btn-forget" id="stageFailBtn" type="button">不会，回到待背队列</button>
-      </div>
+      <h3 class="study-word">${escapeHtml(word.word)}</h3>
+      <p class="study-meaning">${escapeHtml(word.exampleSentence || fallbackSentence(word))}</p>
+      <p class="study-subcopy">先判断你对这句英文的理解程度。</p>
+      ${translationVisible ? `
+        <div class="study-reveal">
+          <p class="study-reveal-label">你的判断：${stageChoiceLabel(entry.stage2Choice)}</p>
+          <p class="study-reveal-text">${escapeHtml(sentenceTranslation(word))}</p>
+        </div>
+        <div class="study-actions">
+          <button class="btn-know" data-stage2-judge="correct" type="button">正确</button>
+          <button class="btn-forget" data-stage2-judge="wrong" type="button">错误</button>
+        </div>
+      ` : `
+        <div class="study-actions">
+          <button class="btn-know" data-stage2-choice="know" type="button">会</button>
+          <button class="btn-neutral" data-stage2-choice="fuzzy" type="button">模糊</button>
+          <button class="btn-forget" data-stage2-choice="dontKnow" type="button">不会</button>
+        </div>
+      `}
     `;
   }
 
   if (entry.stage === 3) {
+    const revealed = Boolean(entry.stage3Choice);
     content += `
-      <h3 class="study-word">${word.meaning}</h3>
-      <p class="study-meaning">现在不要看单词，确认你是否能从这个意思联想到对应英文。</p>
-      <div class="study-actions">
-        <button class="btn-know" id="stagePassBtn" type="button">会，完成该词</button>
-        <button class="btn-forget" id="stageFailBtn" type="button">不会，回到待背队列</button>
-      </div>
+      <h3 class="study-word">${escapeHtml(word.meaning)}</h3>
+      <p class="study-meaning">先不要看单词，判断你能不能从这个中文意思直接想到英文。</p>
+      ${revealed ? `
+        <div class="study-reveal">
+          <p class="study-reveal-label">你的选择：${entry.stage3Choice === "know" ? "会" : "不会"}</p>
+          <p class="study-reveal-word">${escapeHtml(word.word)}</p>
+        </div>
+        <div class="study-actions">
+          <button class="primary-btn" id="stageThreeNextBtn" type="button">下一词</button>
+        </div>
+      ` : `
+        <div class="study-actions">
+          <button class="btn-know" data-stage3-choice="know" type="button">会</button>
+          <button class="btn-forget" data-stage3-choice="dontKnow" type="button">不会</button>
+        </div>
+      `}
     `;
   }
 
@@ -477,28 +1001,39 @@ function renderStudyCard() {
 
   if (entry.stage === 1) {
     els.studyCard.querySelectorAll("[data-choice-index]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        if (button.dataset.correct === "true") {
-          await passStage();
-        } else {
-          await failStage();
-        }
+      button.addEventListener("click", () => {
+        handleStageOneChoice(Number.parseInt(button.dataset.choiceIndex, 10));
+      });
+    });
+    els.studyCard.querySelector("#stageOneNextBtn")?.addEventListener("click", advanceStageOne);
+  }
+
+  if (entry.stage === 2) {
+    els.studyCard.querySelectorAll("[data-stage2-choice]").forEach((button) => {
+      button.addEventListener("click", () => {
+        handleStageTwoChoice(button.dataset.stage2Choice);
+      });
+    });
+    els.studyCard.querySelectorAll("[data-stage2-judge]").forEach((button) => {
+      button.addEventListener("click", () => {
+        handleStageTwoJudge(button.dataset.stage2Judge);
       });
     });
   }
 
-  const passBtn = els.studyCard.querySelector("#stagePassBtn");
-  const failBtn = els.studyCard.querySelector("#stageFailBtn");
-  if (passBtn) {
-    passBtn.addEventListener("click", passStage);
-  }
-  if (failBtn) {
-    failBtn.addEventListener("click", failStage);
+  if (entry.stage === 3) {
+    els.studyCard.querySelectorAll("[data-stage3-choice]").forEach((button) => {
+      button.addEventListener("click", () => {
+        handleStageThreeChoice(button.dataset.stage3Choice);
+      });
+    });
+    els.studyCard.querySelector("#stageThreeNextBtn")?.addEventListener("click", advanceStageThree);
   }
 }
 
 function markQueueNextActive() {
   uiState.round.activeId = uiState.round.queue[0]?.id || null;
+  persistRound();
 }
 
 async function completeWord(entry) {
@@ -513,36 +1048,8 @@ async function completeWord(entry) {
   });
   uiState.round.queue = uiState.round.queue.filter((item) => item.id !== entry.id);
   markQueueNextActive();
+  persistRound();
   await refreshState();
-}
-
-async function passStage() {
-  const entry = currentRoundEntry();
-  if (!entry) {
-    return;
-  }
-
-  if (entry.stage === 3) {
-    await completeWord(entry);
-    render();
-    return;
-  }
-
-  entry.stage += 1;
-  render();
-}
-
-async function failStage() {
-  const entry = currentRoundEntry();
-  if (!entry || !uiState.round) {
-    return;
-  }
-
-  entry.attempts += 1;
-  uiState.round.queue = uiState.round.queue.filter((item) => item.id !== entry.id);
-  uiState.round.queue.push(entry);
-  markQueueNextActive();
-  render();
 }
 
 function renderAiOutputPlaceholder() {
@@ -692,6 +1199,7 @@ async function generateContent() {
 async function syncSettingsFromInputs() {
   try {
     const boundExam = state.libraryMeta?.boundExam || null;
+    const previousRoundSize = state.settings.roundSize;
     const roundSize = String(
       Math.max(1, Math.min(50, Number.parseInt(els.roundSizeInput.value || state.settings.roundSize, 10) || 8)),
     );
@@ -712,6 +1220,7 @@ async function syncSettingsFromInputs() {
       ...state.settings,
       ...data.settings,
     };
+    reconcileActiveRoundSize(previousRoundSize, state.settings.roundSize);
     render();
   } catch (error) {
     window.alert(error.message);
@@ -776,6 +1285,7 @@ async function resetToday() {
       body: JSON.stringify({}),
     });
     uiState.round = null;
+    persistRound();
     await refreshState();
   } catch (error) {
     window.alert(error.message);
@@ -815,9 +1325,13 @@ function unlockAdmin() {
 
 function enterApp() {
   uiState.appEntered = true;
+  uiState.currentView = "home";
   els.entryScreen.hidden = true;
-  els.homeShell.hidden = false;
-  els.openSettingsBtn.hidden = false;
+  render();
+}
+
+function goHome() {
+  uiState.currentView = "home";
   render();
 }
 
@@ -829,6 +1343,8 @@ function bindEvents() {
     uiState.currentView = "ai";
     render();
   });
+  els.studyBackBtn.addEventListener("click", goHome);
+  els.aiBackBtn.addEventListener("click", goHome);
 
   els.resetTodayBtn.addEventListener("click", resetToday);
   els.generateBtn.addEventListener("click", generateContent);

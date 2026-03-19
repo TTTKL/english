@@ -118,7 +118,8 @@ h4 {
   cursor: pointer;
 }
 
-.home-shell {
+.home-shell,
+.page-shell {
   width: min(1120px, calc(100% - 32px));
   margin: 32px auto 48px;
   display: grid;
@@ -127,6 +128,14 @@ h4 {
 
 .home-header {
   text-align: center;
+  padding-top: 28px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
   padding-top: 28px;
 }
 
@@ -306,6 +315,33 @@ h4 {
   padding: 14px 16px;
   background: rgba(255, 255, 255, 0.92);
   text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.option-btn:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.option-btn.is-correct {
+  background: rgba(46, 125, 91, 0.16);
+  border-color: rgba(46, 125, 91, 0.4);
+}
+
+.option-btn.is-wrong {
+  background: rgba(168, 74, 68, 0.16);
+  border-color: rgba(168, 74, 68, 0.4);
+}
+
+.option-cn {
+  font-weight: 700;
+}
+
+.option-en {
+  color: var(--muted);
+  font-size: 0.95rem;
 }
 
 .study-actions {
@@ -329,6 +365,35 @@ h4 {
 .btn-forget {
   background: rgba(168, 74, 68, 0.14);
   color: var(--danger);
+}
+
+.btn-neutral {
+  background: rgba(89, 112, 138, 0.14);
+  color: #49627c;
+}
+
+.study-reveal {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 250, 243, 0.9);
+  border: 1px solid rgba(62, 43, 31, 0.08);
+}
+
+.study-reveal-label {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.study-reveal-text,
+.study-reveal-word {
+  margin: 0;
+}
+
+.study-reveal-word {
+  font-size: 1.5rem;
+  font-weight: 700;
 }
 
 .segmented-control {
@@ -486,7 +551,8 @@ h4 {
     top: 12px;
   }
 
-  .home-shell {
+  .home-shell,
+  .page-shell {
     width: min(100% - 16px, 100%);
     margin-top: 72px;
   }
@@ -509,6 +575,7 @@ h4 {
   }
 
   .section-title-row,
+  .page-header,
   .word-item {
     flex-direction: column;
     align-items: flex-start;
